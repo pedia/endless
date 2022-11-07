@@ -41,8 +41,8 @@ func main() {
 				return fmt.Errorf("inherit %s not found", addr)
 			}
 
-			c.AddListener(nf.LN, addr)
-			server, err := serve_http(addr, nf.LN)
+			c.AddListener(nf.Listener, addr)
+			server, err := serve_http(addr, nf.Listener)
 			s = server
 			return err
 		},

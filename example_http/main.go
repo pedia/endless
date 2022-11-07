@@ -42,8 +42,8 @@ func main() {
 				return fmt.Errorf("inherit %s not found", addr)
 			}
 
-			c.AddListener(nf.LN, addr)
-			s = serve_http(addr, nf.LN)
+			c.AddListener(nf.Listener, addr)
+			s = serve_http(addr, nf.Listener)
 			return nil
 		},
 		func(ctx context.Context) error {

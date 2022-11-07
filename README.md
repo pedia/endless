@@ -7,6 +7,7 @@ Zero downtime restarts for golang Servers.
 
 
 # Test
+Short with `make test`
 ```bash
 # build http server
 make

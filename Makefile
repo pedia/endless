@@ -9,7 +9,7 @@ e2: example_fasthttp/main.go endless.go
 clean:
 	rm -f e1 e2
 
-test:
+test: e1
 	./e1 &
 	kill -HUP `curl -s http://127.0.0.1:3030`
 	kill -HUP `curl -s http://127.0.0.1:3030`

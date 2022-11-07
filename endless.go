@@ -12,12 +12,10 @@ import (
 )
 
 type named_file struct {
-	Name       string `json:"name"`
-	file       *os.File
-	FD         int          `json:"fd"`
-	IsListener bool         `json:"l"`
-	Addr       string       `json:"addr"`
-	LN         net.Listener `json:"-"`
+	Name     string       `json:"name"` // file/socket's name
+	File     *os.File     `json:"-"`
+	Addr     string       `json:"addr"` // socket's address
+	Listener net.Listener `json:"-"`
 }
 
 type Parent struct {
@@ -25,7 +23,7 @@ type Parent struct {
 }
 
 func (p *Parent) AddFile(f *os.File) {
-	p.add(named_file{f.Name(), f, int(f.Fd()), false, "", nil})
+	p.add(named_file{f.Name(), f, "", nil})
 }
 
 func listener_to_file(ln net.Listener) (*os.File, error) {
@@ -39,7 +37,7 @@ func listener_to_file(ln net.Listener) (*os.File, error) {
 }
 
 func (p *Parent) AddListener(l net.Listener, addr string) {
-	p.add(named_file{LN: l, Addr: addr, IsListener: true})
+	p.add(named_file{Listener: l, Addr: addr})
 }
 
 func (p *Parent) add(nfs ...named_file) {
@@ -62,21 +60,26 @@ func (p *Parent) ForkChild() (*os.Process, error) {
 		return nil, err
 	}
 
-	lnf, err := listener_to_file(p.Files[0].LN)
-	if err != nil {
-		return nil, err
-	}
-	defer lnf.Close()
-
 	files := []*os.File{
 		os.Stdin,
 		os.Stdout,
 		os.Stderr,
-		lnf,
 	}
 
-	p.Files[0].FD = int(lnf.Fd())
-	p.Files[0].Name = lnf.Name()
+	for _, nf := range p.Files {
+		if nf.Addr == "" {
+			files = append(files, nf.File)
+		} else {
+			lf, err := listener_to_file(p.Files[0].Listener)
+			if err == nil {
+				nf.File = lf
+				nf.Name = lf.Name()
+				files = append(files, nf.File)
+			} else {
+				fmt.Printf("listener to file failed: %s, ignored", err)
+			}
+		}
+	}
 
 	// Get current environment and add `endless` to it.
 	bs, err := json.Marshal(p.Files)
@@ -134,7 +137,16 @@ func (p *Parent) WaitForSignal(quit func(ctx context.Context) error) error {
 			err := quit(ctx)
 
 			defer cancel()
+			p.Quit()
 			return err
+		}
+	}
+}
+
+func (p *Parent) Quit() {
+	for _, nf := range p.Files {
+		if nf.Addr != "" && nf.File != nil {
+			nf.File.Close()
 		}
 	}
 }
@@ -199,16 +211,16 @@ func NewClient(env string) *Child {
 	first_fd := 3
 
 	for i, nf := range nfs {
-		if nf.IsListener {
+		if nf.Addr != "" {
 			file := os.NewFile(uintptr(first_fd+i), nf.Name)
 			defer file.Close()
-			nf.LN, err = net.FileListener(file)
+			nf.Listener, err = net.FileListener(file)
 			if err != nil {
 				fmt.Printf("create listener inner failed: %s\n", err)
 			}
 			c.NamedFiles[nf.Addr] = nf
 		} else {
-			nf.file = os.NewFile(uintptr(first_fd+i), nf.Name)
+			nf.File = os.NewFile(uintptr(first_fd+i), nf.Name)
 			c.NamedFiles[nf.Name] = nf
 		}
 	}
