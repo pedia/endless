@@ -1,3 +1,27 @@
+// Zero downtime restarts for Go Servers.
+// Since it's easy to wrap multiple sockets and files to Server,
+// and downtime is really ugly, passing multiple socket|file to child-process
+// is very important. This packege resolve it.
+//
+// Here is a simple example.
+//
+// endless.Start(init_parent, init_child, quit)
+//
+// // callback for first startup, normally create listener.
+//
+// func init_parent(p *endless.Parent) {
+//  // create listener
+//  ln, err := net.Listen("tcp", addr)
+//  if err != nil {
+//   return err
+//  }
+//
+//  // add for inherit
+//  p.AddListener(ln, addr)
+//  // start http server
+//  s = serve_http(addr, ln)
+//  return err
+// }
 package endless
 
 import (
@@ -18,10 +42,12 @@ type named_file struct {
 	Listener net.Listener `json:"-"`
 }
 
+// Parent process, hold files for inherit.
 type Parent struct {
 	Files []named_file
 }
 
+// Add file for inherit to child process.
 func (p *Parent) AddFile(f *os.File) {
 	p.add(named_file{f.Name(), f, "", nil})
 }
@@ -36,6 +62,7 @@ func listener_to_file(ln net.Listener) (*os.File, error) {
 	return nil, fmt.Errorf("unsupported listener: %T", ln)
 }
 
+// Add Listener for inherit to child process.
 func (p *Parent) AddListener(l net.Listener, addr string) {
 	p.add(named_file{Listener: l, Addr: addr})
 }
@@ -47,7 +74,7 @@ func (p *Parent) add(nfs ...named_file) {
 	p.Files = append(p.Files, nfs...)
 }
 
-func (p *Parent) ForkChild() (*os.Process, error) {
+func (p *Parent) fork_child() (*os.Process, error) {
 	// Get current process name and directory.
 	exec_fp, err := os.Executable()
 	if err != nil {
@@ -111,6 +138,7 @@ func (p *Parent) ForkChild() (*os.Process, error) {
 	return process, nil
 }
 
+//
 func (p *Parent) WaitForSignal(quit func(ctx context.Context) error) error {
 	signalCh := make(chan os.Signal, 1024)
 	signal.Notify(signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT)
@@ -120,7 +148,7 @@ func (p *Parent) WaitForSignal(quit func(ctx context.Context) error) error {
 
 		switch s {
 		case syscall.SIGHUP:
-			proc, err := p.ForkChild()
+			proc, err := p.fork_child()
 			if err != nil {
 				fmt.Printf("unable fork child: %s\n", err)
 				continue
@@ -151,6 +179,9 @@ func (p *Parent) Quit() {
 	}
 }
 
+// Main entry for endless.
+// In `init_parent` normally create listener.
+// In `init_child` normally inherit the listener.
 func Start(
 	init_parent func(p *Parent) error,
 	init_child func(c *Child) error,
@@ -172,7 +203,7 @@ func Start(
 		return
 	}
 
-	c := NewClient(env)
+	c := new_client(env)
 	if c == nil {
 		os.Exit(2)
 		return
@@ -198,7 +229,7 @@ type Child struct {
 	NamedFiles map[string]named_file
 }
 
-func NewClient(env string) *Child {
+func new_client(env string) *Child {
 	nfs := []named_file{}
 	err := json.Unmarshal([]byte(env), &nfs)
 	if err != nil {

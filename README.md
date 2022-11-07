@@ -1,4 +1,4 @@
-Zero downtime restarts for golang Servers.
+Zero downtime restarts for Go Servers.
 
 # Features
 - Pass `init_parent`, `init_child`, `quit` callback for Server.
